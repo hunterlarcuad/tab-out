@@ -16,7 +16,45 @@
 'use strict';
  
  /**
+  * THEME MANAGEMENT
+  */
+ 
+ /**
+  * applyTheme(theme)
+  * Sets the class on documentElement and updates the switcher UI.
+  */
+ function applyTheme(theme) {
+   const root = document.documentElement;
+   root.classList.remove('light-theme', 'dark-theme');
+   if (theme === 'light') root.classList.add('light-theme');
+   if (theme === 'dark')  root.classList.add('dark-theme');
+ 
+   // Update button UI
+   document.querySelectorAll('.theme-btn').forEach(btn => {
+     btn.classList.toggle('active', btn.dataset.theme === theme);
+   });
+ 
+   // Store preference
+   chrome.storage.local.set({ theme });
+ }
+ 
+ /**
+  * initTheme()
+  * Loads theme from storage or defaults to 'system'.
+  */
+ async function initTheme() {
+   const { theme = 'system' } = await chrome.storage.local.get('theme');
+   applyTheme(theme);
+ }
+ 
+ // Start theme init immediately
+ initTheme();
+ 
+ 
+ /**
+
   * Global Image Error Handler (CSP-compliant)
+
   * Since we can't use inline onerror="..." in a Chrome extension, we use
   * a capturing listener on the document to hide images that fail to load.
   */
@@ -1444,6 +1482,17 @@ document.addEventListener('click', async (e) => {
     return;
   }
 });
+
+/**
+ * THEME SWITCHER LISTENER
+ */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.theme-btn');
+  if (!btn) return;
+  const theme = btn.dataset.theme;
+  if (theme) applyTheme(theme);
+});
+
 
 // ---- Archive toggle — expand/collapse the archive section ----
 document.addEventListener('click', (e) => {
