@@ -563,6 +563,90 @@ function getDateDisplay() {
   });
 }
 
+/**
+ * renderBookmarks()
+ *
+ * Fetches the user's bookmarks and renders them into the bar.
+ * Simple and direct.
+ */
+async function renderBookmarks() {
+  const container = document.getElementById('bookmarksList');
+  if (!container) return;
+
+  try {
+    const tree = await chrome.bookmarks.getTree();
+    const root = tree[0];
+    
+    // Find the Bookmarks Bar node (ID '1')
+    const bookmarksBarNode = 
+      root.children.find(c => c.id === '1') || 
+      root.children.find(c => c.title.toLowerCase().includes('bar')) || 
+      root.children[0];
+    
+    if (!bookmarksBarNode || !bookmarksBarNode.children) return;
+
+    const items = bookmarksBarNode.children;
+    container.innerHTML = items.map(item => {
+      if (item.url) {
+        const faviconUrl = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32`;
+        return `
+          <a href="${item.url}" class="bookmark-item" title="${item.title}">
+            <img src="${faviconUrl}" class="bookmark-favicon" alt="">
+            <span>${item.title}</span>
+          </a>
+        `;
+      } else {
+        return `
+          <div class="bookmark-item bookmark-folder" data-id="${item.id}">
+            <svg class="bookmark-folder-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.42 0 .822.164 1.118.455l.83.81H13.5A1.5 1.5 0 0 1 15 4.75v8.5A1.5 1.5 0 0 1 13.5 14.75h-11A1.5 1.5 0 0 1 1 13.25v-9.75zM2.5 3a.5.5 0 0 0-.5.5v9.75c0 .276.224.5.5.5h11a.5.5 0 0 0 .5-.5v-8.5a.5.5 0 0 0-.5-.5H7.012a1.5 1.5 0 0 1-1.118-.455l-.83-.81A.5.5 0 0 0 4.764 3H2.5z"/></svg>
+            <span>${item.title}</span>
+          </div>
+        `;
+      }
+    }).join('');
+
+    // --- Robust Overflow Detection Logic ---
+    const overflowBtn = document.getElementById('bookmarksOverflowBtn');
+    if (!overflowBtn) return;
+
+    const updateOverflow = () => {
+      const containerWidth = container.getBoundingClientRect().width;
+      const bookmarkElements = container.querySelectorAll('.bookmark-item');
+      let overflowItems = [];
+      let currentWidth = 0;
+      
+      // First, show everything to get real widths
+      bookmarkElements.forEach(el => el.style.display = 'flex');
+
+      bookmarkElements.forEach((el, index) => {
+        const elWidth = el.offsetWidth + 2; // 2px is the gap in CSS
+        if (currentWidth + elWidth > containerWidth) {
+          el.style.display = 'none';
+          overflowItems.push(items[index]);
+        } else {
+          currentWidth += elWidth;
+        }
+      });
+
+      if (overflowItems.length > 0) {
+        overflowBtn.style.display = 'flex';
+        overflowBtn.dataset.overflowItems = JSON.stringify(overflowItems);
+      } else {
+        overflowBtn.style.display = 'none';
+      }
+    };
+
+    // Run once and setup observer
+    setTimeout(updateOverflow, 100);
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(container);
+    
+  } catch (err) {
+    console.error('[tab-out] Failed to render bookmarks:', err);
+  }
+}
+
+
 
 /* ----------------------------------------------------------------
    DOMAIN & TITLE CLEANUP HELPERS
@@ -1541,3 +1625,247 @@ document.addEventListener('input', async (e) => {
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+renderBookmarks();
+
+/* ----------------------------------------------------------------
+   BOOKMARKS LISTENERS
+   ---------------------------------------------------------------- */
+/**
+ * createBookmarkDropdown()
+ * 
+ * Helper to create and position a dropdown for a folder.
+ */
+async function createBookmarkDropdown(folderId, x, y, level = 0, parentItem = null) {
+  try {
+    const children = await chrome.bookmarks.getChildren(folderId);
+    if (children.length === 0) return;
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'bookmark-dropdown';
+    dropdown.dataset.level = level;
+    dropdown.dataset.folderId = folderId; // Track which folder this menu belongs to
+    
+    dropdown.innerHTML = children.map(child => {
+      const isFolder = !child.url;
+      const icon = isFolder 
+        ? `<svg class="dropdown-folder-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.42 0 .822.164 1.118.455l.83.81H13.5A1.5 1.5 0 0 1 15 4.75v8.5A1.5 1.5 0 0 1 13.5 14.75h-11A1.5 1.5 0 0 1 1 13.25v-9.75zM2.5 3a.5.5 0 0 0-.5.5v9.75c0 .276.224.5.5.5h11a.5.5 0 0 0 .5-.5v-8.5a.5.5 0 0 0-.5-.5H7.012a1.5 1.5 0 0 1-1.118-.455l-.83-.81A.5.5 0 0 0 4.764 3H2.5z"/></svg>`
+        : `<img src="chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(child.url)}&size=32" alt="">`;
+      
+      const arrow = isFolder ? `<span class="nested-arrow">▶</span>` : '';
+      const itemClass = isFolder ? 'dropdown-item bookmark-folder' : 'dropdown-item';
+      
+      return `
+        <${child.url ? 'a href="' + child.url + '"' : 'div'} 
+          class="${itemClass}" 
+          data-id="${child.id}"
+        >
+          ${icon}
+          <span class="item-text">${child.title}</span>
+          ${arrow}
+        </${child.url ? 'a' : 'div'}>
+      `;
+    }).join('');
+
+    document.body.appendChild(dropdown);
+
+    // Smart Positioning
+    const dropdownRect = dropdown.getBoundingClientRect();
+    const padding = 4;
+    const screenPadding = 12;
+    
+    let finalX = x;
+    let finalY = y;
+
+    // For nested levels, we want to show it to the side
+    if (level > 0 && parentItem) {
+      const parentRect = parentItem.getBoundingClientRect();
+      // Try right first
+      finalX = parentRect.right + padding;
+      finalY = parentRect.top - 6;
+
+      // If overflows right, flip to left
+      if (finalX + dropdownRect.width > window.innerWidth - screenPadding) {
+        finalX = parentRect.left - dropdownRect.width - padding;
+      }
+    }
+
+    // Safety: Clamp Horizontal (Prevent off-screen left/right)
+    if (finalX < screenPadding) finalX = screenPadding;
+    if (finalX + dropdownRect.width > window.innerWidth - screenPadding) {
+      finalX = window.innerWidth - dropdownRect.width - screenPadding;
+    }
+
+    // Safety: Clamp Vertical (Prevent off-screen top/bottom)
+    if (finalY + dropdownRect.height > window.innerHeight - screenPadding) {
+      finalY = window.innerHeight - dropdownRect.height - screenPadding;
+    }
+    if (finalY < screenPadding) finalY = screenPadding;
+
+    dropdown.style.left = `${finalX}px`;
+    dropdown.style.top = `${finalY}px`;
+
+    return dropdown;
+  } catch (err) {
+    console.error('[tab-out] Failed to create dropdown:', err);
+  }
+}
+
+let hoverTimeout = null;
+
+document.addEventListener('mouseover', async (e) => {
+  const isDropdownOpen = !!document.querySelector('.bookmark-dropdown');
+
+  // Case A: Hovering over nested folder (level > 0)
+  const nestedFolder = e.target.closest('.bookmark-dropdown .bookmark-folder');
+  if (nestedFolder) {
+    const folderId = nestedFolder.dataset.id;
+    
+    // If this sub-folder is already open, don't flicker
+    const existingSub = document.querySelector(`.bookmark-dropdown[data-folder-id="${folderId}"]`);
+    if (existingSub) {
+      clearTimeout(hoverTimeout);
+      return;
+    }
+
+    clearTimeout(hoverTimeout);
+    hoverTimeout = setTimeout(async () => {
+      const parentDropdown = nestedFolder.closest('.bookmark-dropdown');
+      const level = parseInt(parentDropdown.dataset.level) + 1;
+
+      document.querySelectorAll('.bookmark-dropdown').forEach(d => {
+        if (parseInt(d.dataset.level) >= level) d.remove();
+      });
+
+      const folderId = nestedFolder.dataset.id;
+      const rect = nestedFolder.getBoundingClientRect();
+      await createBookmarkDropdown(folderId, rect.right, rect.top, level, nestedFolder);
+    }, 150);
+    return;
+  }
+
+  // Case B: Hovering over top-level folder (level 0) OR Overflow button
+  const topLevelFolder = e.target.closest('.bookmarks-bar .bookmark-folder');
+  const overflowBtnHover = e.target.closest('#bookmarksOverflowBtn');
+  
+  if ((topLevelFolder || overflowBtnHover) && isDropdownOpen) {
+    clearTimeout(hoverTimeout);
+    
+    // If we are hovering over the button/folder that's already open, do nothing
+    const targetId = topLevelFolder ? topLevelFolder.dataset.id : 'overflow';
+    const currentLvl0 = document.querySelector('.bookmark-dropdown[data-level="0"]');
+    if (currentLvl0 && currentLvl0.dataset.folderId === targetId) return;
+    
+    document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+    
+    if (topLevelFolder) {
+      const rect = topLevelFolder.getBoundingClientRect();
+      await createBookmarkDropdown(targetId, rect.left, rect.bottom + 4, 0, topLevelFolder);
+    } else {
+      // Re-trigger overflow dropdown creation logic
+      const overflowBtn = document.getElementById('bookmarksOverflowBtn');
+      const overflowItems = JSON.parse(overflowBtn.dataset.overflowItems || '[]');
+      if (overflowItems.length === 0) return;
+
+      const dropdown = document.createElement('div');
+      dropdown.className = 'bookmark-dropdown';
+      dropdown.dataset.level = 0;
+      dropdown.dataset.folderId = 'overflow';
+      dropdown.innerHTML = overflowItems.map(item => {
+        const isFolder = !item.url;
+        const icon = isFolder 
+          ? `<svg class="dropdown-folder-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.42 0 .822.164 1.118.455l.83.81H13.5A1.5 1.5 0 0 1 15 4.75v8.5A1.5 1.5 0 0 1 13.5 14.75h-11A1.5 1.5 0 0 1 1 13.25v-9.75zM2.5 3a.5.5 0 0 0-.5.5v9.75c0 .276.224.5.5.5h11a.5.5 0 0 0 .5-.5v-8.5a.5.5 0 0 0-.5-.5H7.012a1.5 1.5 0 0 1-1.118-.455l-.83-.81A.5.5 0 0 0 4.764 3H2.5z"/></svg>`
+          : `<img src="chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32" alt="">`;
+        const arrow = isFolder ? `<span class="nested-arrow">▶</span>` : '';
+        return `<${item.url ? 'a href="' + item.url + '"' : 'div'} class="${isFolder ? 'dropdown-item bookmark-folder' : 'dropdown-item'}" data-id="${item.id}">${icon}<span class="item-text">${item.title}</span>${arrow}</${item.url ? 'a' : 'div'}>`;
+      }).join('');
+      document.body.appendChild(dropdown);
+      const rect = overflowBtn.getBoundingClientRect();
+      dropdown.style.left = `${rect.right - 220}px`; 
+      dropdown.style.top = `${rect.bottom + 4}px`;
+    }
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  // 1. Handle Closing
+  const clickedInDropdown = e.target.closest('.bookmark-dropdown');
+  const clickedFolder = e.target.closest('.bookmark-folder');
+
+  if (!clickedInDropdown && !clickedFolder) {
+    document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+  }
+
+  // 2. Hide Bar Logic
+  if (e.target.closest('#hideBookmarksBtn')) {
+    const wrapper = document.querySelector('.bookmarks-bar-wrapper');
+    if (wrapper) wrapper.style.display = 'none';
+    await chrome.storage.local.set({ bookmarksVisible: false });
+    showToast('Bookmarks bar hidden.');
+  }
+
+  // 3. Restore Bar Logic
+  if (e.target.closest('#showBookmarksLink')) {
+    await chrome.storage.local.set({ bookmarksVisible: true });
+    location.reload();
+  }
+
+  // 4. Open Top-level Bookmark Folder (Click required for level 0)
+  const topLevelFolder = e.target.closest('.bookmarks-bar .bookmark-folder');
+  if (topLevelFolder) {
+    e.stopPropagation();
+    document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+    const folderId = topLevelFolder.dataset.id;
+    const rect = topLevelFolder.getBoundingClientRect();
+    await createBookmarkDropdown(folderId, rect.left, rect.bottom + 4, 0, topLevelFolder);
+  }
+
+  // 5. Overflow Button Click
+  const overflowBtn = e.target.closest('#bookmarksOverflowBtn');
+  if (overflowBtn) {
+    e.stopPropagation();
+    document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+    
+    const overflowItems = JSON.parse(overflowBtn.dataset.overflowItems || '[]');
+    if (overflowItems.length === 0) return;
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'bookmark-dropdown';
+    dropdown.dataset.level = 0;
+    dropdown.dataset.folderId = 'overflow';
+    
+    dropdown.innerHTML = overflowItems.map(item => {
+      const isFolder = !item.url;
+      const icon = isFolder 
+        ? `<svg class="dropdown-folder-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.42 0 .822.164 1.118.455l.83.81H13.5A1.5 1.5 0 0 1 15 4.75v8.5A1.5 1.5 0 0 1 13.5 14.75h-11A1.5 1.5 0 0 1 1 13.25v-9.75zM2.5 3a.5.5 0 0 0-.5.5v9.75c0 .276.224.5.5.5h11a.5.5 0 0 0 .5-.5v-8.5a.5.5 0 0 0-.5-.5H7.012a1.5 1.5 0 0 1-1.118-.455l-.83-.81A.5.5 0 0 0 4.764 3H2.5z"/></svg>`
+        : `<img src="chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32" alt="">`;
+      
+      const arrow = isFolder ? `<span class="nested-arrow">▶</span>` : '';
+      const itemClass = isFolder ? 'dropdown-item bookmark-folder' : 'dropdown-item';
+      
+      return `
+        <${item.url ? 'a href="' + item.url + '"' : 'div'} 
+          class="${itemClass}" 
+          data-id="${item.id}"
+        >
+          ${icon}
+          <span class="item-text">${item.title}</span>
+          ${arrow}
+        </${item.url ? 'a' : 'div'}>
+      `;
+    }).join('');
+
+    document.body.appendChild(dropdown);
+    
+    const rect = overflowBtn.getBoundingClientRect();
+    // Align right to match the button
+    dropdown.style.left = `${rect.right - 220}px`; 
+    dropdown.style.top = `${rect.bottom + 4}px`;
+  }
+});
+
+// 6. Escape Key to close all dropdowns
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
+  }
+});
