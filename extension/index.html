@@ -109,18 +109,35 @@
         <h2>Recently visited</h2>
         <div class="section-line"></div>
         <div class="history-controls">
+          <div class="history-search-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="historySearchInput" placeholder="Search history..." class="history-search-input">
+            <button class="history-search-clear" id="historySearchClearBtn" title="Clear search" style="display:none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
           <span class="history-count" id="historyCount"></span>
           <select class="history-range-select" id="historyRangeSelect">
             <optgroup label="By Count">
               <option value="50">Last 50</option>
               <option value="100">Last 100</option>
+              <option value="200">Last 200</option>
               <option value="500">Last 500</option>
             </optgroup>
             <optgroup label="By Time">
               <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="day-before">Past 2 days</option>
+              <option value="last-3d">Past 3 days</option>
               <option value="last-7d">Past 7 days</option>
               <option value="last-30d">Past 30 days</option>
+              <option value="all">All history</option>
             </optgroup>
+          </select>
+          <select class="history-range-select" id="historySortSelect">
+            <option value="freq">Sort by Frequency</option>
+            <option value="recency">Sort by Recency</option>
+            <option value="alphabet">Sort by Domain A-Z</option>
           </select>
         </div>
       </div>

@@ -103,12 +103,20 @@
    // Disable transitions during load
    document.body.classList.add('no-transitions');
    
-   // Load both states
-   const { bookmarksVisible = true, historyVisible = true } = await chrome.storage.local.get(['bookmarksVisible', 'historyVisible']);
+   // Load states
+   const { 
+     bookmarksVisible = true, 
+     historyVisible = true,
+     historySort = 'freq'
+   } = await chrome.storage.local.get(['bookmarksVisible', 'historyVisible', 'historySort']);
    
    // Apply them
    applyBookmarksVisibility(bookmarksVisible);
    applyHistoryVisibility(historyVisible);
+   
+   // Set sort value if dropdown exists
+   const sortSelect = document.getElementById('historySortSelect');
+   if (sortSelect) sortSelect.value = historySort;
    
    // Force a reflow to ensure the initial states are set without transitions
    void document.body.offsetHeight;
@@ -1260,26 +1268,50 @@ async function renderHistorySection() {
   const list    = document.getElementById('historyList');
   const select  = document.getElementById('historyRangeSelect');
   const countEl = document.getElementById('historyCount');
+  const searchInput = document.getElementById('historySearchInput');
   if (!section || !list) return;
 
   try {
-    const { historyRange = '50' } = await chrome.storage.local.get('historyRange');
+    const { 
+      historyRange = '50',
+      historySort = 'freq'
+    } = await chrome.storage.local.get(['historyRange', 'historySort']);
+    
     if (select) select.value = historyRange;
+    const sortSelect = document.getElementById('historySortSelect');
+    if (sortSelect) sortSelect.value = historySort;
 
-    let query = { text: '' };
+    const searchText = searchInput ? searchInput.value.trim() : '';
+    let query = { text: searchText };
     const now = Date.now();
 
+    const startOfToday = new Date();
+    startOfToday.setHours(0,0,0,0);
+    const msToday = startOfToday.getTime();
+    const msDay = 24 * 60 * 60 * 1000;
+
     if (historyRange === 'today') {
-      const startOfDay = new Date();
-      startOfDay.setHours(0,0,0,0);
-      query.startTime = startOfDay.getTime();
+      query.startTime = msToday;
       query.maxResults = 1000;
-    } else if (historyRange === 'last-7d') {
-      query.startTime = now - (7 * 24 * 60 * 60 * 1000);
+    } else if (historyRange === 'yesterday') {
+      query.startTime = msToday - msDay;
+      query.endTime   = msToday; // Fixed day, excludes today
+      query.maxResults = 1500;
+    } else if (historyRange === 'day-before') {
+      query.startTime = now - (msDay * 2); // Rolling 48h, includes today
       query.maxResults = 2000;
+    } else if (historyRange === 'last-3d') {
+      query.startTime = now - (3 * msDay);
+      query.maxResults = 2000;
+    } else if (historyRange === 'last-7d') {
+      query.startTime = now - (7 * msDay);
+      query.maxResults = 3000;
     } else if (historyRange === 'last-30d') {
-      query.startTime = now - (30 * 24 * 60 * 60 * 1000);
+      query.startTime = now - (30 * msDay);
       query.maxResults = 5000;
+    } else if (historyRange === 'all') {
+      query.startTime = 0;
+      query.maxResults = 10000;
     } else {
       query.maxResults = (parseInt(historyRange) || 50);
       query.startTime = 0; // Search everything
@@ -1305,27 +1337,106 @@ async function renderHistorySection() {
           domain = url.hostname || (url.protocol === 'file:' ? 'Local Files' : 'Other');
         } catch {}
         
-        if (!groups[domain]) groups[domain] = { domain, tabs: [] };
+        if (!groups[domain]) {
+          groups[domain] = { 
+            domain, 
+            tabs: [],
+            maxTime: 0
+          };
+        }
         groups[domain].tabs.push(item);
+        if (item.lastVisitTime > groups[domain].maxTime) {
+          groups[domain].maxTime = item.lastVisitTime;
+        }
       }
 
-      const sortedGroups = Object.values(groups).sort((a, b) => b.tabs.length - a.tabs.length);
+      let sortedGroups = Object.values(groups);
+
+      if (historySort === 'recency') {
+        // Sort by the most recent visit in the group
+        sortedGroups.sort((a, b) => b.maxTime - a.maxTime);
+      } else if (historySort === 'alphabet') {
+        // Sort by domain name A-Z
+        sortedGroups.sort((a, b) => a.domain.localeCompare(b.domain));
+      } else {
+        // Default: Sort by Frequency (number of items in group)
+        sortedGroups.sort((a, b) => b.tabs.length - a.tabs.length);
+      }
       
       list.innerHTML = sortedGroups.map(g => renderHistoryDomainCard(g)).join('');
-      section.style.display = 'block';
-
+      
       if (countEl) {
         const totalStr = totalItems.length >= 9500 ? '10000+' : totalItems.length;
         countEl.textContent = `${historyItems.length} / ${totalStr}`;
       }
     } else {
-      section.style.display = 'none';
+      // No items found
+      if (searchText) {
+        list.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--muted); opacity: 0.6; font-size: 13px; grid-column: 1 / -1;">No history found for "${searchText}"</div>`;
+        if (countEl) countEl.textContent = `0 / 0`;
+      } else {
+        // If really no history at all (rare), then we can hide
+        section.style.display = 'none';
+        return;
+      }
+    }
+
+    // Ensure section is visible if we have results or are searching
+    const { historyVisible = true } = await chrome.storage.local.get('historyVisible');
+    if (historyVisible) {
+      section.style.display = 'block';
+      section.classList.remove('collapsed');
     }
   } catch (err) {
     console.warn('[tab-out] Could not load history:', err);
     section.style.display = 'none';
   }
 }
+
+// ---- History search listener (Debounced) ----
+let historySearchTimeout = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'historySearchInput') {
+    const clearBtn = document.getElementById('historySearchClearBtn');
+    if (clearBtn) clearBtn.style.display = e.target.value ? 'flex' : 'none';
+
+    clearTimeout(historySearchTimeout);
+    historySearchTimeout = setTimeout(() => {
+      renderHistorySection();
+    }, 250);
+  }
+});
+
+function clearHistorySearch() {
+  const input = document.getElementById('historySearchInput');
+  const clearBtn = document.getElementById('historySearchClearBtn');
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  if (clearBtn) clearBtn.style.display = 'none';
+  renderHistorySection();
+}
+// ---- History sort selector listener ----
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'historySortSelect') {
+    const val = e.target.value;
+    await chrome.storage.local.set({ historySort: val });
+    renderHistorySection();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.activeElement.id === 'historySearchInput') {
+    clearHistorySearch();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#historySearchClearBtn')) {
+    clearHistorySearch();
+  }
+});
 
 // ---- History range selector listener ----
 document.addEventListener('change', async (e) => {

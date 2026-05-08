@@ -90,7 +90,7 @@ body::before {
 .history-section {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
-  max-height: 2000px; /* High enough for content */
+  max-height: 10000px; /* Increased to allow more content while maintaining transition */
   opacity: 1;
 }
 
@@ -270,7 +270,7 @@ body::before {
 .show-bookmarks-link {
   font-size: 10px;
   color: var(--muted);
-  text-decoration: underline;
+  text-decoration: none;
   cursor: pointer;
   opacity: 0.5;
   margin-left: 12px;
@@ -465,6 +465,75 @@ header {
   color: var(--muted);
   font-weight: 500;
   opacity: 0.8;
+  white-space: nowrap;
+}
+
+.history-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--warm-gray);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0 10px;
+  transition: all 0.2s ease;
+  width: 180px;
+}
+
+.history-search-wrapper:focus-within {
+  border-color: var(--muted);
+  background: var(--card-bg);
+  width: 240px;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+.search-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  margin-right: 8px;
+}
+
+.history-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  width: 100%;
+  padding: 6px 0;
+}
+
+.history-search-input::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.history-search-clear {
+  background: none;
+  border: none;
+  padding: 4px;
+  margin-right: -4px;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.history-search-clear:hover {
+  background: var(--border-color);
+  color: var(--ink);
+  opacity: 1;
+}
+
+.history-search-clear svg {
+  width: 12px;
+  height: 12px;
 }
 
 .history-range-select {
@@ -640,6 +709,7 @@ header {
   align-items: center;
   gap: 8px;
   line-height: 1.4;
+  text-decoration: none; /* Removed underline */
 }
 
 .page-chip:last-child,
