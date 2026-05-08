@@ -14,7 +14,7 @@
 <body>
 <div class="container">
   <!-- Native-style Bookmarks Bar -->
-  <nav class="bookmarks-bar-wrapper">
+  <nav class="bookmarks-bar-wrapper collapsed">
     <div class="bookmarks-bar" id="bookmarksBar">
       <div class="bookmarks-list" id="bookmarksList">
         <!-- Bookmarks will be injected here -->
@@ -47,6 +47,9 @@
     <div class="header-right">
       <button class="bookmarks-toggle-btn" id="toggleBookmarksBtn" title="Toggle bookmarks bar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l7-5 7 5V3z"/></svg>
+      </button>
+      <button class="bookmarks-toggle-btn" id="toggleHistoryBtn" title="Toggle history section">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       </button>
 
       <div class="theme-switcher">
@@ -98,6 +101,30 @@
         <div class="section-count" id="openTabsSectionCount"></div>
       </div>
       <div class="missions" id="openTabsMissions"></div>
+    </div>
+
+    <!-- LEFT COLUMN: Recently visited -->
+    <div class="history-section collapsed" id="historySection">
+      <div class="section-header">
+        <h2>Recently visited</h2>
+        <div class="section-line"></div>
+        <div class="history-controls">
+          <span class="history-count" id="historyCount"></span>
+          <select class="history-range-select" id="historyRangeSelect">
+            <optgroup label="By Count">
+              <option value="50">Last 50</option>
+              <option value="100">Last 100</option>
+              <option value="500">Last 500</option>
+            </optgroup>
+            <optgroup label="By Time">
+              <option value="today">Today</option>
+              <option value="last-7d">Past 7 days</option>
+              <option value="last-30d">Past 30 days</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
+      <div class="history-list" id="historyList"></div>
     </div>
 
     <!-- RIGHT COLUMN: Saved for Later checklist -->

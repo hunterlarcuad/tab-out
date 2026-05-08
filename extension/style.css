@@ -85,6 +85,29 @@ body::before {
   max-width: 1300px;
 }
 
+/* ---- Transitions & Collapsed State ---- */
+.bookmarks-bar-wrapper,
+.history-section {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  max-height: 2000px; /* High enough for content */
+  opacity: 1;
+}
+
+.collapsed {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.no-transitions * {
+  transition: none !important;
+}
+
 /* ---- High-Fidelity Bookmarks Bar ---- */
 .bookmarks-bar-wrapper {
   margin: -12px -32px 24px;
@@ -419,6 +442,56 @@ header {
   letter-spacing: 0.5px;
   white-space: nowrap;
 }
+
+/* ---- History Section ---- */
+.history-section {
+  margin-top: 24px;
+}
+
+.history-list {
+  columns: 280px;
+  column-gap: 12px;
+  margin-bottom: 40px;
+}
+
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.history-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.history-range-select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--warm-gray);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  appearance: auto;
+}
+
+.history-range-select:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+.history-range-select:focus {
+  border-color: var(--accent-amber);
+}
+
+/* We will reuse mission-card styles for history cards */
 
 /* ---- Mission Cards ---- */
 .missions {

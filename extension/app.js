@@ -72,17 +72,53 @@
    chrome.storage.local.set({ bookmarksVisible: visible });
  }
 
+
+
  /**
-  * initBookmarksVisibility()
-  * Loads visibility from storage or defaults to true.
+  * HISTORY VISIBILITY MANAGEMENT
   */
- async function initBookmarksVisibility() {
-   const { bookmarksVisible = true } = await chrome.storage.local.get('bookmarksVisible');
-   applyBookmarksVisibility(bookmarksVisible);
+
+ /**
+  * applyHistoryVisibility(visible)
+  * Toggles the display of the history section and updates the toggle button active state.
+  */
+ function applyHistoryVisibility(visible) {
+   const section = document.getElementById('historySection');
+   const toggleBtn = document.getElementById('toggleHistoryBtn');
+   if (section) {
+     section.classList.toggle('collapsed', !visible);
+     // If we are showing it, render it
+     if (visible) renderHistorySection();
+   }
+   if (toggleBtn) {
+     toggleBtn.classList.toggle('active', visible);
+   }
+   // Store preference
+   chrome.storage.local.set({ historyVisible: visible });
  }
 
- // Start bookmarks visibility init
- initBookmarksVisibility();
+
+ // --- INITIALIZATION SEQUENCE (Flicker-free) ---
+ async function initDashboardVisibility() {
+   // Disable transitions during load
+   document.body.classList.add('no-transitions');
+   
+   // Load both states
+   const { bookmarksVisible = true, historyVisible = true } = await chrome.storage.local.get(['bookmarksVisible', 'historyVisible']);
+   
+   // Apply them
+   applyBookmarksVisibility(bookmarksVisible);
+   applyHistoryVisibility(historyVisible);
+   
+   // Force a reflow to ensure the initial states are set without transitions
+   void document.body.offsetHeight;
+   
+   // Re-enable transitions
+   document.body.classList.remove('no-transitions');
+ }
+
+ // Run init sequence
+ initDashboardVisibility();
  
  
  /**
@@ -888,16 +924,22 @@ let domainGroups = [];
  * pages, about:blank, etc.
  */
 function getRealTabs() {
-  return openTabs.filter(t => {
-    const url = t.url || '';
-    return (
-      !url.startsWith('chrome://') &&
-      !url.startsWith('chrome-extension://') &&
-      !url.startsWith('about:') &&
-      !url.startsWith('edge://') &&
-      !url.startsWith('brave://')
-    );
-  });
+  return openTabs.filter(t => !isInternalUrl(t.url));
+}
+
+/**
+ * isInternalUrl(url)
+ * Returns true if the URL is a browser-internal page or this extension's own page.
+ */
+function isInternalUrl(url) {
+  if (!url) return true;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('about:') ||
+    url.startsWith('edge://') ||
+    url.startsWith('brave://')
+  );
 }
 
 /**
@@ -1171,6 +1213,129 @@ function renderArchiveItem(item) {
     </div>`;
 }
 
+/**
+ * renderHistoryDomainCard(group)
+ */
+function renderHistoryDomainCard(group) {
+  const items = group.tabs || [];
+  const count = items.length;
+  const stableId = 'history-' + group.domain.replace(/[^a-z0-9]/g, '-');
+
+  const pageChips = items.slice(0, 10).map(item => {
+    let label = cleanTitle(smartTitle(stripTitleNoise(item.title || ''), item.url), group.domain);
+    const safeUrl = (item.url || '').replace(/"/g, '&quot;');
+    const safeTitle = label.replace(/"/g, '&quot;');
+    let domain = '';
+    try { domain = new URL(item.url).hostname; } catch {}
+    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const ago = timeAgo(item.lastVisitTime);
+
+    return `
+      <a href="${item.url}" target="_blank" rel="noopener" class="page-chip clickable" title="${safeTitle}">
+        ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="">` : ''}
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+          <span class="chip-text" style="-webkit-line-clamp: 1;">${label}</span>
+          <span style="font-size:10px; color:var(--muted);">${ago}</span>
+        </div>
+      </a>`;
+  }).join('');
+
+  return `
+    <div class="mission-card domain-card has-neutral-bar" data-domain-id="${stableId}">
+      <div class="status-bar"></div>
+      <div class="mission-content">
+        <div class="mission-top">
+          <span class="mission-name">${friendlyDomain(group.domain)}</span>
+          <span class="open-tabs-badge" style="color:var(--muted); background:rgba(154,145,138,0.08);">
+            ${count} visit${count !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div class="mission-pages">${pageChips}</div>
+      </div>
+    </div>`;
+}
+
+async function renderHistorySection() {
+  const section = document.getElementById('historySection');
+  const list    = document.getElementById('historyList');
+  const select  = document.getElementById('historyRangeSelect');
+  const countEl = document.getElementById('historyCount');
+  if (!section || !list) return;
+
+  try {
+    const { historyRange = '50' } = await chrome.storage.local.get('historyRange');
+    if (select) select.value = historyRange;
+
+    let query = { text: '' };
+    const now = Date.now();
+
+    if (historyRange === 'today') {
+      const startOfDay = new Date();
+      startOfDay.setHours(0,0,0,0);
+      query.startTime = startOfDay.getTime();
+      query.maxResults = 1000;
+    } else if (historyRange === 'last-7d') {
+      query.startTime = now - (7 * 24 * 60 * 60 * 1000);
+      query.maxResults = 2000;
+    } else if (historyRange === 'last-30d') {
+      query.startTime = now - (30 * 24 * 60 * 60 * 1000);
+      query.maxResults = 5000;
+    } else {
+      query.maxResults = (parseInt(historyRange) || 50);
+      query.startTime = 0; // Search everything
+    }
+
+    const [rawHistory, rawTotal] = await Promise.all([
+      chrome.history.search({ ...query, maxResults: query.maxResults * 10 }), // Fetch 10x to ensure enough unique real items
+      chrome.history.search({ text: '', startTime: 0, maxResults: 10000 })
+    ]);
+
+    // Filter out internal pages
+    const filteredHistory = rawHistory.filter(item => !isInternalUrl(item.url));
+    const historyItems    = filteredHistory.slice(0, query.maxResults);
+    const totalItems      = rawTotal.filter(item => !isInternalUrl(item.url));
+
+    if (historyItems.length > 0) {
+      // Group by domain
+      const groups = {};
+      for (const item of historyItems) {
+        let domain = 'Other';
+        try { 
+          const url = new URL(item.url);
+          domain = url.hostname || (url.protocol === 'file:' ? 'Local Files' : 'Other');
+        } catch {}
+        
+        if (!groups[domain]) groups[domain] = { domain, tabs: [] };
+        groups[domain].tabs.push(item);
+      }
+
+      const sortedGroups = Object.values(groups).sort((a, b) => b.tabs.length - a.tabs.length);
+      
+      list.innerHTML = sortedGroups.map(g => renderHistoryDomainCard(g)).join('');
+      section.style.display = 'block';
+
+      if (countEl) {
+        const totalStr = totalItems.length >= 9500 ? '10000+' : totalItems.length;
+        countEl.textContent = `${historyItems.length} / ${totalStr}`;
+      }
+    } else {
+      section.style.display = 'none';
+    }
+  } catch (err) {
+    console.warn('[tab-out] Could not load history:', err);
+    section.style.display = 'none';
+  }
+}
+
+// ---- History range selector listener ----
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'historyRangeSelect') {
+    const newRange = e.target.value;
+    await chrome.storage.local.set({ historyRange: newRange });
+    renderHistorySection();
+  }
+});
+
 
 /* ----------------------------------------------------------------
    MAIN DASHBOARD RENDERER
@@ -1334,6 +1499,9 @@ async function renderStaticDashboard() {
 
   // --- Render "Saved for Later" column ---
   await renderDeferredColumn();
+
+  // --- Render History section ---
+  await renderHistorySection();
 }
 
 async function renderDashboard() {
@@ -1832,17 +2000,20 @@ document.addEventListener('click', async (e) => {
   // 2. Toggle Bar Logic
   const toggleBtn = e.target.closest('#toggleBookmarksBtn');
   const hideBtn = e.target.closest('#hideBookmarksBtn');
+  const toggleHistoryBtn = e.target.closest('#toggleHistoryBtn');
   
   if (toggleBtn || hideBtn) {
     const { bookmarksVisible = true } = await chrome.storage.local.get('bookmarksVisible');
     const newState = !bookmarksVisible;
     applyBookmarksVisibility(newState);
-    
-    if (newState) {
-      showToast('Bookmarks bar shown.');
-    } else {
-      showToast('Bookmarks bar hidden.');
-    }
+    showToast(newState ? 'Bookmarks bar shown.' : 'Bookmarks bar hidden.');
+  }
+
+  if (toggleHistoryBtn) {
+    const { historyVisible = true } = await chrome.storage.local.get('historyVisible');
+    const newState = !historyVisible;
+    applyHistoryVisibility(newState);
+    showToast(newState ? 'History section shown.' : 'History section hidden.');
   }
 
   // 3. Open Top-level Bookmark Folder (Click required for level 0)
