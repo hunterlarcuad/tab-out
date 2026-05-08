@@ -49,6 +49,40 @@
  
  // Start theme init immediately
  initTheme();
+
+
+ /**
+  * BOOKMARKS VISIBILITY MANAGEMENT
+  */
+
+ /**
+  * applyBookmarksVisibility(visible)
+  * Toggles the 'collapsed' class on the bar and updates the toggle button active state.
+  */
+ function applyBookmarksVisibility(visible) {
+   const wrapper = document.querySelector('.bookmarks-bar-wrapper');
+   const toggleBtn = document.getElementById('toggleBookmarksBtn');
+   if (wrapper) {
+     wrapper.classList.toggle('collapsed', !visible);
+   }
+   if (toggleBtn) {
+     toggleBtn.classList.toggle('active', visible);
+   }
+   // Store preference
+   chrome.storage.local.set({ bookmarksVisible: visible });
+ }
+
+ /**
+  * initBookmarksVisibility()
+  * Loads visibility from storage or defaults to true.
+  */
+ async function initBookmarksVisibility() {
+   const { bookmarksVisible = true } = await chrome.storage.local.get('bookmarksVisible');
+   applyBookmarksVisibility(bookmarksVisible);
+ }
+
+ // Start bookmarks visibility init
+ initBookmarksVisibility();
  
  
  /**
@@ -1795,21 +1829,23 @@ document.addEventListener('click', async (e) => {
     document.querySelectorAll('.bookmark-dropdown').forEach(d => d.remove());
   }
 
-  // 2. Hide Bar Logic
-  if (e.target.closest('#hideBookmarksBtn')) {
-    const wrapper = document.querySelector('.bookmarks-bar-wrapper');
-    if (wrapper) wrapper.style.display = 'none';
-    await chrome.storage.local.set({ bookmarksVisible: false });
-    showToast('Bookmarks bar hidden.');
+  // 2. Toggle Bar Logic
+  const toggleBtn = e.target.closest('#toggleBookmarksBtn');
+  const hideBtn = e.target.closest('#hideBookmarksBtn');
+  
+  if (toggleBtn || hideBtn) {
+    const { bookmarksVisible = true } = await chrome.storage.local.get('bookmarksVisible');
+    const newState = !bookmarksVisible;
+    applyBookmarksVisibility(newState);
+    
+    if (newState) {
+      showToast('Bookmarks bar shown.');
+    } else {
+      showToast('Bookmarks bar hidden.');
+    }
   }
 
-  // 3. Restore Bar Logic
-  if (e.target.closest('#showBookmarksLink')) {
-    await chrome.storage.local.set({ bookmarksVisible: true });
-    location.reload();
-  }
-
-  // 4. Open Top-level Bookmark Folder (Click required for level 0)
+  // 3. Open Top-level Bookmark Folder (Click required for level 0)
   const topLevelFolder = e.target.closest('.bookmarks-bar .bookmark-folder');
   if (topLevelFolder) {
     e.stopPropagation();
