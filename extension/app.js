@@ -1120,6 +1120,47 @@ function renderDomainCard(group) {
    ---------------------------------------------------------------- */
 
 /**
+ * groupByDomain(items)
+ * Helper to group a list of objects (with .url) by domain hostname.
+ */
+function groupByDomain(items) {
+  const groups = {};
+  for (const item of items) {
+    let domain = 'Other';
+    try {
+      const url = new URL(item.url);
+      domain = url.hostname.replace(/^www\./, '') || 'Local Files';
+    } catch {}
+    if (!groups[domain]) groups[domain] = [];
+    groups[domain].push(item);
+  }
+  return groups;
+}
+
+/**
+ * renderDeferredDomainCard(domain, items)
+ */
+function renderDeferredDomainCard(domain, items) {
+  const pageChips = items.map(item => renderDeferredItem(item)).join('');
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const count = items.length;
+
+  return `
+    <div class="mission-card deferred-domain-card has-neutral-bar">
+      <div class="mission-content">
+        <div class="mission-top">
+          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;margin-right:6px">
+          <span class="mission-name">${domain}</span>
+          <span class="open-tabs-badge" style="color:var(--muted); background:rgba(154,145,138,0.08);">
+            ${count} item${count !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div class="mission-pages">${pageChips}</div>
+      </div>
+    </div>`;
+}
+
+/**
  * renderDeferredColumn()
  *
  * Reads saved tabs from chrome.storage.local and renders the right-side
@@ -1140,7 +1181,6 @@ async function renderDeferredColumn() {
   try {
     const { active, archived } = await getSavedTabs();
 
-    // Hide the entire column if there's nothing to show
     if (active.length === 0 && archived.length === 0) {
       column.style.display = 'none';
       return;
@@ -1148,10 +1188,21 @@ async function renderDeferredColumn() {
 
     column.style.display = 'block';
 
-    // Render active checklist items
+    // Render active items grouped by domain, sorted by recency
     if (active.length > 0) {
       countEl.textContent = `${active.length} item${active.length !== 1 ? 's' : ''}`;
-      list.innerHTML = active.map(item => renderDeferredItem(item)).join('');
+      const groupedActive = groupByDomain(active);
+      
+      // Sort groups by the most recently saved item in each group
+      const sortedActiveGroups = Object.entries(groupedActive).sort((a, b) => {
+        const latestA = Math.max(...a[1].map(it => new Date(it.savedAt || 0).getTime()));
+        const latestB = Math.max(...b[1].map(it => new Date(it.savedAt || 0).getTime()));
+        return latestB - latestA;
+      });
+
+      list.innerHTML = sortedActiveGroups
+        .map(([domain, items]) => renderDeferredDomainCard(domain, items))
+        .join('');
       list.style.display = 'block';
       empty.style.display = 'none';
     } else {
@@ -1160,10 +1211,29 @@ async function renderDeferredColumn() {
       empty.style.display = 'block';
     }
 
-    // Render archive section
+    // Render archived items, also grouped and sorted by recency
     if (archived.length > 0) {
       archiveCountEl.textContent = `(${archived.length})`;
-      archiveList.innerHTML = archived.map(item => renderArchiveItem(item)).join('');
+      const groupedArchived = groupByDomain(archived);
+      
+      const sortedArchivedGroups = Object.entries(groupedArchived).sort((a, b) => {
+        const latestA = Math.max(...a[1].map(it => new Date(it.completedAt || it.savedAt || 0).getTime()));
+        const latestB = Math.max(...b[1].map(it => new Date(it.completedAt || it.savedAt || 0).getTime()));
+        return latestB - latestA;
+      });
+
+      archiveList.innerHTML = sortedArchivedGroups
+        .map(([domain, items]) => {
+          const chips = items.map(it => renderArchiveItem(it)).join('');
+          return `
+            <div style="margin-bottom: 12px;">
+              <div style="font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; padding-left: 4px; display: flex; align-items: center; gap: 6px;">
+                <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=16" style="width:12px;height:12px;opacity:0.7">
+                ${domain}
+              </div>
+              ${chips}
+            </div>`;
+        }).join('');
       archiveEl.style.display = 'block';
     } else {
       archiveEl.style.display = 'none';
@@ -1192,10 +1262,9 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
       <div class="deferred-info">
         <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${item.title || item.url}
+          ${item.title || item.url}
         </a>
         <div class="deferred-meta">
-          <span>${domain}</span>
           <span>${ago}</span>
         </div>
       </div>
@@ -1213,11 +1282,14 @@ function renderDeferredItem(item) {
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
   return `
-    <div class="archive-item">
+    <div class="archive-item" data-deferred-id="${item.id}">
       <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
         ${item.title || item.url}
       </a>
       <span class="archive-item-date">${ago}</span>
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Delete">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
     </div>`;
 }
 
@@ -1375,9 +1447,16 @@ async function renderHistorySection() {
         list.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--muted); opacity: 0.6; font-size: 13px; grid-column: 1 / -1;">No history found for "${searchText}"</div>`;
         if (countEl) countEl.textContent = `0 / 0`;
       } else {
-        // If really no history at all (rare), then we can hide
-        section.style.display = 'none';
-        return;
+        // Only hide if history was never enabled/shown — don't hide an already-visible section
+        // just because the search returned 0 results (can happen right after tab close due to
+        // Chrome's async history write delay).
+        if (section.classList.contains('collapsed') || section.style.display === 'none') {
+          // Never shown yet — safe to skip rendering
+          return;
+        }
+        // Already visible: keep it visible but show a neutral empty state
+        list.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--muted); opacity: 0.6; font-size: 13px;">No history available</div>`;
+        if (countEl) countEl.textContent = `0`;
       }
     }
 
@@ -1389,7 +1468,11 @@ async function renderHistorySection() {
     }
   } catch (err) {
     console.warn('[tab-out] Could not load history:', err);
-    section.style.display = 'none';
+    // Do NOT hide the section on error — it may already have content visible.
+    // Only hide if it was never shown (has the collapsed class still).
+    if (section.classList.contains('collapsed')) {
+      section.style.display = 'none';
+    }
   }
 }
 
@@ -1707,6 +1790,10 @@ document.addEventListener('click', async (e) => {
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
 
+    // Refresh history after a short delay so Chrome has time to write the
+    // closed tab to its history database before we query it.
+    setTimeout(() => renderHistorySection(), 1500);
+
     showToast('Tab closed');
     return;
   }
@@ -1776,7 +1863,7 @@ document.addEventListener('click', async (e) => {
 
     await dismissSavedTab(id);
 
-    const item = actionEl.closest('.deferred-item');
+    const item = actionEl.closest('.deferred-item') || actionEl.closest('.archive-item');
     if (item) {
       item.classList.add('removing');
       setTimeout(() => {
@@ -1820,6 +1907,10 @@ document.addEventListener('click', async (e) => {
 
     const statTabs = document.getElementById('statTabs');
     if (statTabs) statTabs.textContent = openTabs.length;
+
+    // Refresh history so recently-closed tabs appear there immediately
+    // (delayed to give Chrome time to write history)
+    setTimeout(() => renderHistorySection(), 1500);
     return;
   }
 
